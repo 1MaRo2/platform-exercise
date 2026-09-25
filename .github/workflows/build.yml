@@ -79,8 +79,16 @@ jobs:
           severity: ${{ env.TRIVY_SEVERITY }}
           exit-code: "1"
           trivyignores: .trivyignore
+      - name: IaC findings as SARIF (report only, all severities)
+        if: always()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: config
+          scan-ref: .
           format: sarif
           output: trivy-config.sarif
+          exit-code: "0"
+          trivyignores: .trivyignore
       - name: Upload IaC findings to the Security tab
         if: always()
         uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2

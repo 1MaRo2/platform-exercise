@@ -17,7 +17,7 @@ pool:
 variables:
   - group: ghcr
   - name: imageName
-    value: ghcr.io/<github-user>/platform-exercise # lowercase
+    value: ghcr.io/1MaRo2/platform-exercise # lowercase
   - name: imageTag
     value: $(Build.SourceVersion)
   - name: isMain
@@ -59,7 +59,7 @@ stages:
             displayName: Image scan (fail on fixable HIGH/CRITICAL)
 
           - script: |
-              echo "$(GHCR_TOKEN)" | docker login ghcr.io -u "<github-user>" --password-stdin
+              echo "$(GHCR_TOKEN)" | docker login ghcr.io -u "1MaRo2" --password-stdin
               docker push $(imageName):$(imageTag)
               digest=$(docker inspect --format '{{index .RepoDigests 0}}' $(imageName):$(imageTag))
               echo "##vso[task.setvariable variable=imageRef;isOutput=true]$digest"

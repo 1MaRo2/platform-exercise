@@ -69,6 +69,9 @@ resource "azurerm_storage_account" "tfstate" {
   tags = local.tags
 
   depends_on = [azurerm_resource_provider_registration.this]
+  lifecycle {
+    prevent_destroy = true # holds all Terraform state
+  }
 }
 
 # The person running bootstrap needs data-plane access to create the container.
@@ -84,6 +87,9 @@ resource "azurerm_storage_container" "tfstate" {
   container_access_type = "private"
 
   depends_on = [azurerm_role_assignment.bootstrap_user_blob]
+  lifecycle {
+    prevent_destroy = true # holds all Terraform state
+  }
 }
 
 # ---- GitHub OIDC identities -------------------------------------------------
