@@ -1,0 +1,186 @@
+# Reusable workflow: test, lint, scan, build the image, and (optionally) push
+# exactly the image that was scanned. Called by ci.yml (PRs) and cd.yml (main).
+name: build
+
+on:
+  workflow_call:
+    inputs:
+      push:
+        description: Push the scanned image to GHCR
+        type: boolean
+        default: false
+    outputs:
+      image:
+        description: Pushed image reference pinned by digest (empty when push=false)
+        value: ${{ jobs.image.outputs.image }}
+
+permissions: {}
+
+env:
+  TRIVY_SEVERITY: HIGH,CRITICAL
+
+jobs:
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: app/go.mod
+          cache: false # stdlib only, nothing to cache; Docker layers use the GHA cache
+      - name: gofmt / vet / test
+        working-directory: app
+        run: |
+          test -z "$(gofmt -l .)" || { gofmt -l .; echo "::error::gofmt needed"; exit 1; }
+          go vet ./...
+          go test -race -cover ./...
+
+  lint:
+    name: Lint (Dockerfile, Terraform)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: hadolint/hadolint-action@06be81baf89a55ffd0e24b8f04a4185738dd3387 # v3.5.0
+        with:
+          dockerfile: Dockerfile
+      - uses: terraform-linters/setup-tflint@1cf010d3c7aef302051ccdb68c14c5dc2efa34ef # v6.3.1
+      - name: tflint
+        run: |
+          tflint --init --config "$GITHUB_WORKSPACE/.tflint.hcl"
+          tflint --recursive --config "$GITHUB_WORKSPACE/.tflint.hcl"
+
+  security-scan:
+    name: SCA, secrets and IaC scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Dependency (SCA) + secret scan — fails on fixable HIGH/CRITICAL
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scanners: vuln,secret
+          severity: ${{ env.TRIVY_SEVERITY }}
+          ignore-unfixed: true
+          exit-code: "1"
+          trivyignores: .trivyignore
+      - name: IaC misconfiguration scan (Terraform + k8s) — fails on HIGH/CRITICAL
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: config
+          scan-ref: .
+          severity: ${{ env.TRIVY_SEVERITY }}
+          exit-code: "1"
+          trivyignores: .trivyignore
+          format: sarif
+          output: trivy-config.sarif
+      - name: Upload IaC findings to the Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: trivy-config.sarif
+          category: trivy-config
+
+  image:
+    name: Build, scan${{ inputs.push && ', push' || '' }}
+    needs: [test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    outputs:
+      image: ${{ steps.push.outputs.image }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Image name (GHCR requires lowercase)
+        id: meta
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build (loaded locally, not pushed yet)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true
+          push: false
+          tags: ${{ steps.meta.outputs.name }}:${{ github.sha }}
+          build-args: VERSION=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+      - name: Report image size
+        run: |
+          docker image ls "${{ steps.meta.outputs.name }}:${{ github.sha }}" --format 'Image size: {{.Size}}' | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Image vulnerability scan (table in the log)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ steps.meta.outputs.name }}:${{ github.sha }}
+          severity: ${{ env.TRIVY_SEVERITY }}
+          ignore-unfixed: true
+          exit-code: "1"
+          trivyignores: .trivyignore
+
+      - name: Image scan SARIF (for the Security tab)
+        if: always()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ steps.meta.outputs.name }}:${{ github.sha }}
+          format: sarif
+          output: trivy-image.sarif
+          exit-code: "0"
+
+      - name: SBOM (CycloneDX)
+        if: always()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ steps.meta.outputs.name }}:${{ github.sha }}
+          format: cyclonedx
+          output: sbom.cdx.json
+          exit-code: "0"
+
+      - name: Upload image findings to the Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: trivy-image.sarif
+          category: trivy-image
+
+      - name: Upload SBOM
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sbom
+          path: sbom.cdx.json
+
+      - name: Log in to GHCR (short-lived GITHUB_TOKEN, no stored secret)
+        if: inputs.push
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push the exact image that was scanned
+        id: push
+        if: inputs.push
+        run: |
+          ref="${{ steps.meta.outputs.name }}:${{ github.sha }}"
+          docker push "$ref"
+          digest_ref="$(docker inspect --format '{{index .RepoDigests 0}}' "$ref")"
+          echo "image=${digest_ref}" >> "$GITHUB_OUTPUT"
+          echo "Pushed: \`${digest_ref}\`" >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,16 @@
+# Default-deny for the app: only ingress on 8080 is allowed, no egress
+# (the service calls nothing). Enforced by CNIs that support NetworkPolicy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: platform-exercise
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: platform-exercise
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - ports:
+        - port: 8080
+          protocol: TCP
+  egress: []

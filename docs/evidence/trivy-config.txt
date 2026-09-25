@@ -1,0 +1,35 @@
+2026-09-24T23:44:31+03:00	INFO	[misconfig] Misconfiguration scanning is enabled
+2026-09-24T23:44:31+03:00	INFO	[checks-client] Need to update the checks bundle
+2026-09-24T23:44:31+03:00	INFO	[checks-client] Downloading the checks bundle...
+2026-09-24T23:44:31+03:00	ERROR	[misconfig] Falling back to embedded checks	err="failed to download checks bundle: download error: OCI repository error: 1 error occurred:\n\t* Get \"https://mirror.gcr.io/v2/\": Forbidden\n\n"
+2026-09-24T23:44:32+03:00	INFO	[terraform scanner] Scanning root module	file_path="infra"
+2026-09-24T23:44:32+03:00	WARN	[terraform parser] Variable values were not found in the environment or variable files. Evaluating may not work correctly.	module="root" variables="environment, image, resource_group_name, subscription_id"
+2026-09-24T23:44:32+03:00	INFO	[terraform scanner] Scanning root module	file_path="infra/bootstrap"
+2026-09-24T23:44:32+03:00	WARN	[terraform parser] Variable values were not found in the environment or variable files. Evaluating may not work correctly.	module="root" variables="budget_contact_emails, github_repository, state_storage_account_name, subscription_id"
+2026-09-24T23:44:33+03:00	INFO	Detected config files	num=8
+
+Report Summary
+
+┌─────────────────────────┬────────────┬───────────────────┐
+│         Target          │    Type    │ Misconfigurations │
+├─────────────────────────┼────────────┼───────────────────┤
+│ Dockerfile              │ dockerfile │         0         │
+├─────────────────────────┼────────────┼───────────────────┤
+│ infra                   │ terraform  │         0         │
+├─────────────────────────┼────────────┼───────────────────┤
+│ infra/bootstrap         │ terraform  │         0         │
+├─────────────────────────┼────────────┼───────────────────┤
+│ infra/bootstrap/main.tf │ terraform  │         0         │
+├─────────────────────────┼────────────┼───────────────────┤
+│ k8s/deployment.yaml     │ kubernetes │         0         │
+├─────────────────────────┼────────────┼───────────────────┤
+│ k8s/networkpolicy.yaml  │ kubernetes │         0         │
+├─────────────────────────┼────────────┼───────────────────┤
+│ k8s/pdb.yaml            │ kubernetes │         0         │
+├─────────────────────────┼────────────┼───────────────────┤
+│ k8s/service.yaml        │ kubernetes │         0         │
+└─────────────────────────┴────────────┴───────────────────┘
+Legend:
+- '-': Not scanned
+- '0': Clean (no security findings detected)
+

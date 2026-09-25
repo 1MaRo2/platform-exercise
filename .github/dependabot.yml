@@ -1,0 +1,15 @@
+# Keeps base images, actions (pinned by SHA) and providers current.
+version: 2
+updates:
+  - package-ecosystem: docker
+    directory: /
+    schedule: { interval: weekly }
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+  - package-ecosystem: gomod
+    directory: /app
+    schedule: { interval: weekly }
+  - package-ecosystem: terraform
+    directories: ["/infra", "/infra/bootstrap", "/infra/modules/container-app"]
+    schedule: { interval: weekly }

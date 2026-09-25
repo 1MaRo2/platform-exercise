@@ -1,0 +1,107 @@
+# Azure DevOps equivalent of the GitHub Actions pipeline (ci.yml + cd.yml).
+# Prerequisites:
+#   - Service connection "azure-dev" of type Azure Resource Manager using
+#     Workload Identity Federation (no secret), scoped to rg-platex-dev.
+#   - Variable group "ghcr" with secret GHCR_TOKEN (a PAT with write:packages).
+#     Tradeoff: GHCR has no federation with Azure DevOps, so this path needs one
+#     scoped PAT. The GitHub Actions path uses no stored secrets at all.
+trigger:
+  branches: { include: [main] }
+  paths: { exclude: [docs/*, "*.md"] }
+pr:
+  branches: { include: [main] }
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - group: ghcr
+  - name: imageName
+    value: ghcr.io/<github-user>/platform-exercise # lowercase
+  - name: imageTag
+    value: $(Build.SourceVersion)
+  - name: isMain
+    value: $[eq(variables['Build.SourceBranch'], 'refs/heads/main')]
+  - name: DOCKER_BUILDKIT
+    value: "1"
+
+stages:
+  - stage: Build
+    displayName: Test, build, scan
+    jobs:
+      - job: build
+        steps:
+          - task: GoTool@0
+            inputs: { version: "1.24" }
+          - script: |
+              cd app
+              test -z "$(gofmt -l .)"
+              go vet ./...
+              go test -race -cover ./...
+            displayName: Unit tests
+
+          - script: |
+              curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/v0.74.0/contrib/install.sh | sh -s -- -b /usr/local/bin v0.74.0
+              trivy --version
+            displayName: Install Trivy
+
+          - script: trivy fs --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 .
+            displayName: SCA + secret scan (fail on fixable HIGH/CRITICAL)
+          - script: trivy config --severity HIGH,CRITICAL --exit-code 1 .
+            displayName: IaC scan (fail on HIGH/CRITICAL)
+
+          - script: |
+              docker build --build-arg VERSION=$(imageTag) -t $(imageName):$(imageTag) .
+              docker image ls $(imageName):$(imageTag) --format 'Image size: {{.Size}}'
+            displayName: Docker build
+
+          - script: trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 $(imageName):$(imageTag)
+            displayName: Image scan (fail on fixable HIGH/CRITICAL)
+
+          - script: |
+              echo "$(GHCR_TOKEN)" | docker login ghcr.io -u "<github-user>" --password-stdin
+              docker push $(imageName):$(imageTag)
+              digest=$(docker inspect --format '{{index .RepoDigests 0}}' $(imageName):$(imageTag))
+              echo "##vso[task.setvariable variable=imageRef;isOutput=true]$digest"
+            name: push
+            displayName: Push scanned image
+            condition: and(succeeded(), eq(variables.isMain, true))
+
+  - stage: Deploy
+    displayName: Deploy to dev
+    dependsOn: Build
+    condition: and(succeeded(), eq(variables.isMain, true))
+    variables:
+      imageRef: $[stageDependencies.Build.build.outputs['push.imageRef']]
+    jobs:
+      - deployment: deploy
+        environment: dev
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                - task: TerraformInstaller@1
+                  inputs: { terraformVersion: latest }
+                - task: AzureCLI@2
+                  displayName: Terraform apply (OIDC via service connection)
+                  inputs:
+                    azureSubscription: azure-dev
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    addSpnToEnvironment: true # exposes servicePrincipalId, idToken, tenantId
+                    workingDirectory: infra
+                    inlineScript: |
+                      export ARM_USE_OIDC=true
+                      export ARM_CLIENT_ID="$servicePrincipalId"
+                      export ARM_OIDC_TOKEN="$idToken"
+                      export ARM_TENANT_ID="$tenantId"
+                      export ARM_SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
+                      export TF_VAR_subscription_id="$ARM_SUBSCRIPTION_ID"
+                      terraform init -input=false -backend-config=envs/dev.backend.hcl
+                      terraform apply -input=false -auto-approve -var-file=envs/dev.tfvars -var="image=$(imageRef)"
+                      echo "##vso[task.setvariable variable=appUrl]$(terraform output -raw app_url)"
+                - script: |
+                    curl -fsS --retry 10 --retry-delay 6 --retry-all-errors "$(appUrl)/health"
+                    test "$(curl -fsS "$(appUrl)/" | jq -r .version)" = "$(Build.SourceVersion)"
+                  displayName: Smoke test

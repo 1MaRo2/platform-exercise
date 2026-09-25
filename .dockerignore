@@ -1,0 +1,4 @@
+# Only app/ is needed in the build context.
+*
+!app/
+app/*_test.go

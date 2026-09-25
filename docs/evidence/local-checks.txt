@@ -1,0 +1,35 @@
+# Local validation evidence (2026-09-24T20:44Z)
+
+$ go vet ./... && go test -race -cover ./...
+=== RUN   TestEndpoints
+=== RUN   TestEndpoints/health_returns_ok
+=== RUN   TestEndpoints/ready_returns_ready
+=== RUN   TestEndpoints/root_returns_version
+--- PASS: TestEndpoints (0.00s)
+    --- PASS: TestEndpoints/health_returns_ok (0.00s)
+    --- PASS: TestEndpoints/ready_returns_ready (0.00s)
+    --- PASS: TestEndpoints/root_returns_version (0.00s)
+=== RUN   TestReadyFailsWhileShuttingDown
+--- PASS: TestReadyFailsWhileShuttingDown (0.00s)
+=== RUN   TestRequestIDPropagation
+--- PASS: TestRequestIDPropagation (0.00s)
+=== RUN   TestUnknownRouteAndMethod
+--- PASS: TestUnknownRouteAndMethod (0.00s)
+PASS
+coverage: 63.2% of statements
+ok  	github.com/example/platform-exercise/app	1.019s	coverage: 63.2% of statements
+
+$ CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" (static binary size)
+5.6M bytes (human)
+
+$ hadolint Dockerfile
+no findings
+
+$ terraform fmt -check -recursive infra   (run with OpenTofu 1.12 fmt, identical formatter)
+formatted
+
+$ tflint --recursive (terraform ruleset, recommended preset)
+no issues
+
+$ actionlint
+no issues

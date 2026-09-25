@@ -1,0 +1,11 @@
+# Accepted findings. Every entry needs: ID, reason, owner, expiry date.
+# Entries are reviewed in PRs like code; expired entries are removed.
+# Format:  <ID>  then a comment line with reason — owner — expiry.
+
+# Terraform state storage account allows public network access (default action Allow).
+# Reason: GitHub-hosted runners have no fixed egress IPs, so an IP allow-list would
+# break CI; private endpoint + self-hosted runner has a cost ($0 budget).
+# Mitigation: shared keys disabled (Entra ID auth only), TLS 1.2, no public blobs,
+# RBAC scoped to the tfstate container, versioning + soft delete.
+# Owner: platform — expires 2026-12-31
+AZU-0012

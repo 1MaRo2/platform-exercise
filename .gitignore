@@ -1,0 +1,18 @@
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+terraform.tfvars
+!*.tfvars.example
+.terraform.d/
+
+# Go / build
+/app/app
+/out/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

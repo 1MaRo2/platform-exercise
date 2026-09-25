@@ -1,0 +1,6 @@
+# Copy to terraform.tfvars (git-ignored) and fill in.
+subscription_id            = "93900b90-8dcc-4ffa-b794-079e5e7dbc39"
+state_storage_account_name = "platexstate1999"
+github_repository          = "1MaRo2/platform-exercise"
+budget_contact_emails      = ["ah.ahmed889@yahoo.com"]
+# location = "westeurope"
