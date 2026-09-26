@@ -19,7 +19,7 @@ tests:
           - exp_labels: {service: backend-api, severity: page, team: platform}
             exp_annotations:
               summary: "backend-api 5xx ratio 5% (> 2 %)"
-              runbook_url: "https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-errors"
+              runbook_url: "https://github.com/1MaRo2/platform-exercise/blob/main/docs/observability.md#runbook-errors"
       - eval_time: 15m
         alertname: AvailabilitySLOFastBurn
         exp_alerts:
@@ -27,7 +27,7 @@ tests:
             exp_annotations:
               summary: "backend-api is burning its availability error budget 14x too fast"
               description: "1h error ratio 5% (SLO 99.9 %). At this rate the monthly budget is gone in ~2 days."
-              runbook_url: "https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-availability"
+              runbook_url: "https://github.com/1MaRo2/platform-exercise/blob/main/docs/observability.md#runbook-availability"
               dashboard: application-observability
       - eval_time: 15m
         alertname: LatencySLOBurn   # all requests are under 300 ms -> must not fire
@@ -65,4 +65,4 @@ tests:
             exp_annotations:
               summary: "Synthetic check https://app.internal/health failing from every probe location"
               description: "All probe locations (AWS and Azure) report failure for 3 minutes."
-              runbook_url: "https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-availability"
+              runbook_url: "https://github.com/1MaRo2/platform-exercise/blob/main/docs/observability.md#runbook-availability"

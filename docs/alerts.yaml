@@ -92,7 +92,7 @@ groups:
         annotations:
           summary: "{{ $labels.service }} is burning its availability error budget 14x too fast"
           description: "1h error ratio {{ $value | humanizePercentage }} (SLO 99.9 %). At this rate the monthly budget is gone in ~2 days."
-          runbook_url: https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-availability
+          runbook_url: https://github.com/1MaRo2/platform-exercise/blob/main/docs/observability.md#runbook-availability
           dashboard: application-observability
 
       - alert: AvailabilitySLOSlowBurn
@@ -108,7 +108,7 @@ groups:
         annotations:
           summary: "{{ $labels.service }} is steadily burning its availability error budget (6x)"
           description: "6h error ratio {{ $value | humanizePercentage }} (SLO 99.9 %)."
-          runbook_url: https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-availability
+          runbook_url: https://github.com/1MaRo2/platform-exercise/blob/main/docs/observability.md#runbook-availability
 
       - alert: AvailabilitySLOBudgetErosion
         expr: |
@@ -123,7 +123,7 @@ groups:
         annotations:
           summary: "{{ $labels.service }} will exhaust its 30-day availability budget at the current rate"
           description: "3d error ratio {{ $value | humanizePercentage }}. Prioritise reliability work."
-          runbook_url: https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-availability
+          runbook_url: https://github.com/1MaRo2/platform-exercise/blob/main/docs/observability.md#runbook-availability
 
       # Black-box view: catches total outages even when no traffic reaches the app
       # (DNS, ingress, VPN), which request-based SLIs cannot see.
@@ -137,7 +137,7 @@ groups:
         annotations:
           summary: "Synthetic check {{ $labels.target }} failing from every probe location"
           description: "All probe locations (AWS and Azure) report failure for 3 minutes."
-          runbook_url: https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-availability
+          runbook_url: https://github.com/1MaRo2/platform-exercise/blob/main/docs/observability.md#runbook-availability
 
   # ---------------------------------------------------------------------------
   # Latency
@@ -157,7 +157,7 @@ groups:
         annotations:
           summary: "{{ $labels.service }}: {{ $value | humanizePercentage }} of requests slower than 300 ms"
           description: "Latency budget (1 % of requests over 300 ms) is burning 14x too fast."
-          runbook_url: https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-latency
+          runbook_url: https://github.com/1MaRo2/platform-exercise/blob/main/docs/observability.md#runbook-latency
 
       - alert: HighP99Latency
         expr: service:http_latency:p99_5m > 1
@@ -167,7 +167,7 @@ groups:
           team: platform
         annotations:
           summary: "{{ $labels.service }} p99 latency {{ $value | humanizeDuration }} (> 1 s)"
-          runbook_url: https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-latency
+          runbook_url: https://github.com/1MaRo2/platform-exercise/blob/main/docs/observability.md#runbook-latency
 
       - alert: ElevatedP95Latency
         expr: service:http_latency:p95_5m > 0.3
@@ -177,7 +177,7 @@ groups:
           team: platform
         annotations:
           summary: "{{ $labels.service }} p95 latency {{ $value | humanizeDuration }} (> 300 ms) for 10 min"
-          runbook_url: https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-latency
+          runbook_url: https://github.com/1MaRo2/platform-exercise/blob/main/docs/observability.md#runbook-latency
 
   # ---------------------------------------------------------------------------
   # Error rate (fast, simple signal alongside the SLO burn alerts)
@@ -196,7 +196,7 @@ groups:
           team: platform
         annotations:
           summary: "{{ $labels.service }} 5xx ratio {{ $value | humanizePercentage }} (> 2 %)"
-          runbook_url: https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-errors
+          runbook_url: https://github.com/1MaRo2/platform-exercise/blob/main/docs/observability.md#runbook-errors
 
   # ---------------------------------------------------------------------------
   # Supporting / cause-oriented alerts: route to tickets or warnings unless
@@ -212,7 +212,7 @@ groups:
           team: platform
         annotations:
           summary: "AWS↔Azure VPN tunnel {{ $labels.tunnel_ip_address }} down (redundancy reduced)"
-          runbook_url: https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-cross-cloud
+          runbook_url: https://github.com/1MaRo2/platform-exercise/blob/main/docs/observability.md#runbook-cross-cloud
 
       - alert: AllVpnTunnelsDown
         expr: sum(aws_vpn_tunnel_state_maximum) == 0
@@ -222,7 +222,7 @@ groups:
           team: platform
         annotations:
           summary: "All AWS↔Azure VPN tunnels down: frontend cannot reach the backend"
-          runbook_url: https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-cross-cloud
+          runbook_url: https://github.com/1MaRo2/platform-exercise/blob/main/docs/observability.md#runbook-cross-cloud
 
       - alert: CrossCloudPathSlow
         expr: avg_over_time(probe_duration_seconds{probe_type="cross-cloud"}[10m]) > 0.15
@@ -232,7 +232,7 @@ groups:
           team: platform
         annotations:
           summary: "EKS→AKS synthetic call slower than 150 ms (normal ~20–40 ms)"
-          runbook_url: https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-cross-cloud
+          runbook_url: https://github.com/1MaRo2/platform-exercise/blob/main/docs/observability.md#runbook-cross-cloud
 
       - alert: DnsResolutionFailures
         expr: |
@@ -245,7 +245,7 @@ groups:
           team: platform
         annotations:
           summary: "{{ $labels.cluster }}: {{ $value | humanizePercentage }} of DNS queries failing"
-          runbook_url: https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-cross-cloud
+          runbook_url: https://github.com/1MaRo2/platform-exercise/blob/main/docs/observability.md#runbook-cross-cloud
 
       - alert: PostgresConnectionsNearLimit
         expr: |
@@ -258,7 +258,7 @@ groups:
           team: platform
         annotations:
           summary: "PostgreSQL {{ $labels.server }} at {{ $value | humanizePercentage }} of max connections"
-          runbook_url: https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-latency
+          runbook_url: https://github.com/1MaRo2/platform-exercise/blob/main/docs/observability.md#runbook-latency
 
       - alert: PodCrashLooping
         expr: max by (cluster, namespace, pod) (kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff"}) == 1
@@ -268,7 +268,7 @@ groups:
           team: platform
         annotations:
           summary: "{{ $labels.cluster }}/{{ $labels.namespace }}/{{ $labels.pod }} is crash-looping"
-          runbook_url: https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-errors
+          runbook_url: https://github.com/1MaRo2/platform-exercise/blob/main/docs/observability.md#runbook-errors
 
       - alert: HpaAtMaxReplicas
         expr: |
@@ -280,7 +280,7 @@ groups:
           team: platform
         annotations:
           summary: "{{ $labels.cluster }}/{{ $labels.horizontalpodautoscaler }} pinned at max replicas: saturation risk"
-          runbook_url: https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-latency
+          runbook_url: https://github.com/1MaRo2/platform-exercise/blob/main/docs/observability.md#runbook-latency
 
   # ---------------------------------------------------------------------------
   # Meta-monitoring: always firing. Alertmanager routes it to an external

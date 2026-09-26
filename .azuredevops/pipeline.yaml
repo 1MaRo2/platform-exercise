@@ -32,7 +32,7 @@ stages:
       - job: build
         steps:
           - task: GoTool@0
-            inputs: { version: "1.24" }
+            inputs: { version: "1.27" }
           - script: |
               cd app
               test -z "$(gofmt -l .)"
