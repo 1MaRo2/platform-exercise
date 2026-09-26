@@ -29,6 +29,16 @@ A small Go HTTP service, containerized, provisioned on **Azure Container Apps** 
           └─ GitHub OIDC identities: plan (pull requests), deploy-dev (GitHub Environment "dev")
 ```
  
+## Conceptual Network Design (Exercise Section 3)
+
+The network design below is a **concept for the separate multi-cloud scenario in Section 3 of the exercise**. It is not the architecture provisioned by this repository: the demo application runs on Azure Container Apps, and `infra/` does not create the AWS, AKS, VPN, firewall, or PostgreSQL resources shown here.
+
+The diagram captures how I reason about private connectivity across cloud boundaries: hub-and-spoke networks, non-overlapping address ranges, redundant encrypted paths, private DNS, inspected traffic, and restricted workload access. It is intended to communicate the design and tradeoffs, not to claim that this topology has been deployed.
+
+![Conceptual multi-cloud network design](docs/network-diagram.png)
+
+See the [network design](docs/network-design.md) for the traffic flows, CIDR plan, security controls, and tradeoffs, or open the [editable draw.io diagram](docs/network-diagram.drawio).
+
 ## Repository layout
  
 ```
