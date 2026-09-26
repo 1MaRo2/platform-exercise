@@ -3,6 +3,8 @@
 # ---- Build stage ----------------------------------------------------------
 # Pin by digest in the final repo (Dependabot keeps it current), e.g.
 #   golang:1.24-alpine@sha256:<digest>
+# We intentionally moved the toolchain to Go 1.27 because the older 1.24 image
+# had multiple HIGH vulnerabilities in the stdlib and was failing the image gate.
 FROM golang:1.27-alpine AS build
 WORKDIR /src
 
@@ -22,6 +24,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 # ---- Runtime stage --------------------------------------------------------
 # distroless/static: no shell, no package manager, ~2 MB, runs as UID 65532.
+# This keeps the attack surface small and the image light enough for the
+# platform exercise while still allowing Container Apps / Kubernetes probes to
+# reach the service over HTTP.
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/app /app
 USER 65532:65532

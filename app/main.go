@@ -18,7 +18,9 @@ import (
 	"time"
 )
 
-// version is injected at build time: -ldflags "-X main.version=<git sha>".
+// version is injected at build time so a deployment can be traced to the exact
+// commit SHA that produced it. This makes smoke tests and rollbacks easier to
+// reason about in CI/CD and in the running environment.
 var version = "dev"
 
 type ctxKey string
@@ -159,7 +161,8 @@ func main() {
 	}()
 
 	<-ctx.Done()
-	// Stop advertising readiness, then drain in-flight requests.
+	// We stop advertising readiness before shutdown so the platform drains traffic
+	// away from this instance instead of abruptly dropping requests during a deploy.
 	s.ready.Store(false)
 	logger.Info("shutdown signal received, draining")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)

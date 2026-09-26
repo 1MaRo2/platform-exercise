@@ -22,6 +22,9 @@ spec:
     spec:
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 20
+      # The security context below is deliberate defense-in-depth: non-root
+      # execution, a read-only root filesystem, and dropped capabilities reduce the
+      # blast radius if the service is ever compromised.
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
