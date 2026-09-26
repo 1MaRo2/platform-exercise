@@ -1,0 +1,298 @@
+# Prometheus alerting + recording rules for the Section 3 application
+# (frontend on AWS EKS, backend API on AKS, PostgreSQL on Azure).
+# Validate: promtool check rules docs/alerts.yaml
+#
+# Metric sources (see docs/observability.md, "Instrumentation"):
+#   http_server_request_duration_seconds_*   OpenTelemetry SDK (HTTP server histogram),
+#                                            exported to Prometheus; relabelled to `service`.
+#                                            Histogram boundaries include 0.3 and 1.0 seconds.
+#   probe_success / probe_duration_seconds   Blackbox exporter synthetic checks, run from both clouds.
+#   aws_vpn_tunnel_state_maximum             CloudWatch exporter (AWS VPN TunnelState, 1 = up).
+#   coredns_dns_responses_total              CoreDNS in each cluster.
+#   pg_stat_activity_count, pg_settings_max_connections   postgres_exporter.
+#   kube_*                                   kube-state-metrics.
+#
+# SLOs (per user-facing service: frontend, backend-api):
+#   Availability: 99.9 % of requests succeed (non-5xx) over 30 days  -> error budget 0.1 %
+#   Latency:      99 % of requests complete in < 300 ms over 30 days  -> latency budget 1 %
+
+groups:
+  # ---------------------------------------------------------------------------
+  # Recording rules: SLI ratios per service over the burn-rate windows.
+  # ---------------------------------------------------------------------------
+  - name: sli-recording
+    interval: 30s
+    rules:
+      - record: service:http_requests:rate5m
+        expr: sum by (service) (rate(http_server_request_duration_seconds_count[5m]))
+
+      - record: service:http_errors:ratio_rate5m
+        expr: |
+          sum by (service) (rate(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[5m]))
+          /
+          sum by (service) (rate(http_server_request_duration_seconds_count[5m]))
+      - record: service:http_errors:ratio_rate30m
+        expr: |
+          sum by (service) (rate(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[30m]))
+          /
+          sum by (service) (rate(http_server_request_duration_seconds_count[30m]))
+      - record: service:http_errors:ratio_rate1h
+        expr: |
+          sum by (service) (rate(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[1h]))
+          /
+          sum by (service) (rate(http_server_request_duration_seconds_count[1h]))
+      - record: service:http_errors:ratio_rate6h
+        expr: |
+          sum by (service) (rate(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[6h]))
+          /
+          sum by (service) (rate(http_server_request_duration_seconds_count[6h]))
+      - record: service:http_errors:ratio_rate3d
+        expr: |
+          sum by (service) (rate(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[3d]))
+          /
+          sum by (service) (rate(http_server_request_duration_seconds_count[3d]))
+
+      # Share of requests slower than the 300 ms SLO threshold.
+      - record: service:http_slow:ratio_rate5m
+        expr: |
+          1 - (
+            sum by (service) (rate(http_server_request_duration_seconds_bucket{le="0.3"}[5m]))
+            /
+            sum by (service) (rate(http_server_request_duration_seconds_count[5m]))
+          )
+      - record: service:http_slow:ratio_rate1h
+        expr: |
+          1 - (
+            sum by (service) (rate(http_server_request_duration_seconds_bucket{le="0.3"}[1h]))
+            /
+            sum by (service) (rate(http_server_request_duration_seconds_count[1h]))
+          )
+
+      - record: service:http_latency:p95_5m
+        expr: histogram_quantile(0.95, sum by (service, le) (rate(http_server_request_duration_seconds_bucket[5m])))
+      - record: service:http_latency:p99_5m
+        expr: histogram_quantile(0.99, sum by (service, le) (rate(http_server_request_duration_seconds_bucket[5m])))
+
+  # ---------------------------------------------------------------------------
+  # Availability: SLO burn-rate alerts (Google SRE workbook, multi-window).
+  # A burn rate of 1 spends exactly the 30-day budget; 14.4 spends 2 % of it in 1 h.
+  # ---------------------------------------------------------------------------
+  - name: availability
+    rules:
+      - alert: AvailabilitySLOFastBurn
+        expr: |
+          service:http_errors:ratio_rate1h > (14.4 * 0.001)
+          and
+          service:http_errors:ratio_rate5m > (14.4 * 0.001)
+        for: 2m
+        labels:
+          severity: page
+          team: platform
+          slo: availability
+        annotations:
+          summary: "{{ $labels.service }} is burning its availability error budget 14x too fast"
+          description: "1h error ratio {{ $value | humanizePercentage }} (SLO 99.9 %). At this rate the monthly budget is gone in ~2 days."
+          runbook_url: https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-availability
+          dashboard: application-observability
+
+      - alert: AvailabilitySLOSlowBurn
+        expr: |
+          service:http_errors:ratio_rate6h > (6 * 0.001)
+          and
+          service:http_errors:ratio_rate30m > (6 * 0.001)
+        for: 15m
+        labels:
+          severity: page
+          team: platform
+          slo: availability
+        annotations:
+          summary: "{{ $labels.service }} is steadily burning its availability error budget (6x)"
+          description: "6h error ratio {{ $value | humanizePercentage }} (SLO 99.9 %)."
+          runbook_url: https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-availability
+
+      - alert: AvailabilitySLOBudgetErosion
+        expr: |
+          service:http_errors:ratio_rate3d > 0.001
+          and
+          service:http_errors:ratio_rate6h > 0.001
+        for: 1h
+        labels:
+          severity: ticket
+          team: platform
+          slo: availability
+        annotations:
+          summary: "{{ $labels.service }} will exhaust its 30-day availability budget at the current rate"
+          description: "3d error ratio {{ $value | humanizePercentage }}. Prioritise reliability work."
+          runbook_url: https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-availability
+
+      # Black-box view: catches total outages even when no traffic reaches the app
+      # (DNS, ingress, VPN), which request-based SLIs cannot see.
+      - alert: EndpointDownFromBothClouds
+        expr: |
+          min by (target) (probe_success{job="blackbox", probe_type="user-journey"}) == 0
+        for: 3m
+        labels:
+          severity: page
+          team: platform
+        annotations:
+          summary: "Synthetic check {{ $labels.target }} failing from every probe location"
+          description: "All probe locations (AWS and Azure) report failure for 3 minutes."
+          runbook_url: https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-availability
+
+  # ---------------------------------------------------------------------------
+  # Latency
+  # ---------------------------------------------------------------------------
+  - name: latency
+    rules:
+      - alert: LatencySLOBurn
+        expr: |
+          service:http_slow:ratio_rate1h > (14.4 * 0.01)
+          and
+          service:http_slow:ratio_rate5m > (14.4 * 0.01)
+        for: 5m
+        labels:
+          severity: page
+          team: platform
+          slo: latency
+        annotations:
+          summary: "{{ $labels.service }}: {{ $value | humanizePercentage }} of requests slower than 300 ms"
+          description: "Latency budget (1 % of requests over 300 ms) is burning 14x too fast."
+          runbook_url: https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-latency
+
+      - alert: HighP99Latency
+        expr: service:http_latency:p99_5m > 1
+        for: 5m
+        labels:
+          severity: page
+          team: platform
+        annotations:
+          summary: "{{ $labels.service }} p99 latency {{ $value | humanizeDuration }} (> 1 s)"
+          runbook_url: https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-latency
+
+      - alert: ElevatedP95Latency
+        expr: service:http_latency:p95_5m > 0.3
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "{{ $labels.service }} p95 latency {{ $value | humanizeDuration }} (> 300 ms) for 10 min"
+          runbook_url: https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-latency
+
+  # ---------------------------------------------------------------------------
+  # Error rate (fast, simple signal alongside the SLO burn alerts)
+  # ---------------------------------------------------------------------------
+  - name: errors
+    rules:
+      # The traffic floor (> 1 req/s) avoids paging on 1 failed request out of 3 at night.
+      - alert: HighErrorRate
+        expr: |
+          service:http_errors:ratio_rate5m > 0.02
+          and
+          service:http_requests:rate5m > 1
+        for: 5m
+        labels:
+          severity: page
+          team: platform
+        annotations:
+          summary: "{{ $labels.service }} 5xx ratio {{ $value | humanizePercentage }} (> 2 %)"
+          runbook_url: https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-errors
+
+  # ---------------------------------------------------------------------------
+  # Supporting / cause-oriented alerts: route to tickets or warnings unless
+  # they are an outage on their own. They explain the symptoms above.
+  # ---------------------------------------------------------------------------
+  - name: dependencies
+    rules:
+      - alert: VpnTunnelDown
+        expr: aws_vpn_tunnel_state_maximum == 0
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "AWS↔Azure VPN tunnel {{ $labels.tunnel_ip_address }} down (redundancy reduced)"
+          runbook_url: https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-cross-cloud
+
+      - alert: AllVpnTunnelsDown
+        expr: sum(aws_vpn_tunnel_state_maximum) == 0
+        for: 2m
+        labels:
+          severity: page
+          team: platform
+        annotations:
+          summary: "All AWS↔Azure VPN tunnels down: frontend cannot reach the backend"
+          runbook_url: https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-cross-cloud
+
+      - alert: CrossCloudPathSlow
+        expr: avg_over_time(probe_duration_seconds{probe_type="cross-cloud"}[10m]) > 0.15
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "EKS→AKS synthetic call slower than 150 ms (normal ~20–40 ms)"
+          runbook_url: https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-cross-cloud
+
+      - alert: DnsResolutionFailures
+        expr: |
+          sum by (cluster) (rate(coredns_dns_responses_total{rcode=~"SERVFAIL|REFUSED"}[5m]))
+          /
+          sum by (cluster) (rate(coredns_dns_responses_total[5m])) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "{{ $labels.cluster }}: {{ $value | humanizePercentage }} of DNS queries failing"
+          runbook_url: https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-cross-cloud
+
+      - alert: PostgresConnectionsNearLimit
+        expr: |
+          sum by (server) (pg_stat_activity_count)
+          /
+          max by (server) (pg_settings_max_connections) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "PostgreSQL {{ $labels.server }} at {{ $value | humanizePercentage }} of max connections"
+          runbook_url: https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-latency
+
+      - alert: PodCrashLooping
+        expr: max by (cluster, namespace, pod) (kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff"}) == 1
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "{{ $labels.cluster }}/{{ $labels.namespace }}/{{ $labels.pod }} is crash-looping"
+          runbook_url: https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-errors
+
+      - alert: HpaAtMaxReplicas
+        expr: |
+          kube_horizontalpodautoscaler_status_current_replicas
+          >= kube_horizontalpodautoscaler_spec_max_replicas
+        for: 15m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "{{ $labels.cluster }}/{{ $labels.horizontalpodautoscaler }} pinned at max replicas: saturation risk"
+          runbook_url: https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-latency
+
+  # ---------------------------------------------------------------------------
+  # Meta-monitoring: always firing. Alertmanager routes it to an external
+  # heartbeat service; if the heartbeat stops, the alerting pipeline is broken.
+  # ---------------------------------------------------------------------------
+  - name: meta
+    rules:
+      - alert: Watchdog
+        expr: vector(1)
+        labels:
+          severity: none
+          team: platform
+        annotations:
+          summary: "Alerting pipeline heartbeat. Should always be firing."
+          

@@ -1,0 +1,68 @@
+# Unit tests for alerts.yaml. Run: promtool test rules docs/alerts_test.yaml
+rule_files:
+  - alerts.yaml
+evaluation_interval: 30s
+tests:
+  # 10 req/s, 5 % errors on backend-api for 20 minutes -> HighErrorRate and fast burn fire.
+  - interval: 30s
+    input_series:
+      - series: 'http_server_request_duration_seconds_count{service="backend-api",http_response_status_code="200"}'
+        values: '0+285x40'
+      - series: 'http_server_request_duration_seconds_count{service="backend-api",http_response_status_code="500"}'
+        values: '0+15x40'
+      - series: 'http_server_request_duration_seconds_bucket{service="backend-api",le="0.3"}'
+        values: '0+300x40'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: HighErrorRate
+        exp_alerts:
+          - exp_labels: {service: backend-api, severity: page, team: platform}
+            exp_annotations:
+              summary: "backend-api 5xx ratio 5% (> 2 %)"
+              runbook_url: "https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-errors"
+      - eval_time: 15m
+        alertname: AvailabilitySLOFastBurn
+        exp_alerts:
+          - exp_labels: {service: backend-api, severity: page, team: platform, slo: availability}
+            exp_annotations:
+              summary: "backend-api is burning its availability error budget 14x too fast"
+              description: "1h error ratio 5% (SLO 99.9 %). At this rate the monthly budget is gone in ~2 days."
+              runbook_url: "https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-availability"
+              dashboard: application-observability
+      - eval_time: 15m
+        alertname: LatencySLOBurn   # all requests are under 300 ms -> must not fire
+        exp_alerts: []
+
+  # Healthy traffic: 0.05 % errors -> nothing fires.
+  - interval: 30s
+    input_series:
+      - series: 'http_server_request_duration_seconds_count{service="frontend",http_response_status_code="200"}'
+        values: '0+1999x40'
+      - series: 'http_server_request_duration_seconds_count{service="frontend",http_response_status_code="503"}'
+        values: '0+1x40'
+      - series: 'http_server_request_duration_seconds_bucket{service="frontend",le="0.3"}'
+        values: '0+2000x40'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: HighErrorRate
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: AvailabilitySLOFastBurn
+        exp_alerts: []
+
+  # Synthetic probe failing from both clouds for 5 min -> page.
+  - interval: 30s
+    input_series:
+      - series: 'probe_success{job="blackbox",probe_type="user-journey",target="https://app.internal/health",location="aws"}'
+        values: '0x10'
+      - series: 'probe_success{job="blackbox",probe_type="user-journey",target="https://app.internal/health",location="azure"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: EndpointDownFromBothClouds
+        exp_alerts:
+          - exp_labels: {target: "https://app.internal/health", severity: page, team: platform}
+            exp_annotations:
+              summary: "Synthetic check https://app.internal/health failing from every probe location"
+              description: "All probe locations (AWS and Azure) report failure for 3 minutes."
+              runbook_url: "https://github.com/<owner>/platform-exercise/blob/main/docs/observability.md#runbook-availability"

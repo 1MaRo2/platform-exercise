@@ -46,6 +46,12 @@ variable "github_repository" {
   }
 }
 
+variable "github_oidc_subject_prefix" {
+  description = "Subject prefix GitHub puts in its OIDC tokens. Newer repos include IDs: repo:<owner>@<owner-id>/<repo>@<repo-id>. Defaults to repo:<owner>/<repo>."
+  type        = string
+  default     = null
+}
+
 variable "budget_amount" {
   description = "Monthly subscription budget in the billing currency."
   type        = number

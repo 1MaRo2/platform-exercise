@@ -15,6 +15,7 @@ locals {
   }
   github_issuer = "https://token.actions.githubusercontent.com"
   github_aud    = ["api://AzureADTokenExchange"]
+  github_sub    = coalesce(var.github_oidc_subject_prefix, "repo:${var.github_repository}")
 }
 
 # ---- Resource providers -----------------------------------------------------
@@ -107,7 +108,7 @@ resource "azurerm_federated_identity_credential" "gh_plan_pr" {
   parent_id = azurerm_user_assigned_identity.gh_plan.id
   issuer    = local.github_issuer
   audience  = local.github_aud
-  subject   = "repo:${var.github_repository}:pull_request"
+  subject   = "${local.github_sub}:pull_request" # in gh_plan_pr
 }
 
 resource "azurerm_role_assignment" "gh_plan_reader" {
@@ -139,7 +140,7 @@ resource "azurerm_federated_identity_credential" "gh_deploy_env" {
   parent_id = azurerm_user_assigned_identity.gh_deploy[each.key].id
   issuer    = local.github_issuer
   audience  = local.github_aud
-  subject   = "repo:${var.github_repository}:environment:${each.key}"
+  subject   = "${local.github_sub}:environment:${each.key}" # in gh_deploy_env
 }
 
 resource "azurerm_role_assignment" "gh_deploy_contributor" {
