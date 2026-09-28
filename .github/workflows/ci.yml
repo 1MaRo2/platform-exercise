@@ -25,6 +25,10 @@ jobs:
 
   terraform-plan:
     name: Terraform plan (dev)
+    if: >-
+      github.actor != 'dependabot[bot]' &&
+      (github.event_name != 'pull_request' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -57,7 +61,7 @@ jobs:
       - name: terraform plan
         run: |
           image="ghcr.io/${GITHUB_REPOSITORY,,}:${{ github.sha }}"
-          terraform plan -input=false -lock-timeout=120s -no-color \
+          terraform plan -input=false -lock=false -no-color \
             -var-file=envs/dev.tfvars -var="image=${image}" | tee plan.txt
           { echo '### Terraform plan (dev)'; echo '```'; tail -c 60000 plan.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 

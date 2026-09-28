@@ -94,8 +94,8 @@ resource "azurerm_storage_container" "tfstate" {
 }
 
 # ---- GitHub OIDC identities -------------------------------------------------
-# Plan identity: used by pull requests. Read-only on the environment, but it
-# needs blob write on the state container to take the state lock.
+# Plan identity: used by pull requests. It reads state without taking a lock,
+# so it needs no state-container write permissions.
 resource "azurerm_user_assigned_identity" "gh_plan" {
   name                = "id-${var.project}-gh-plan"
   resource_group_name = azurerm_resource_group.tfstate.name
@@ -120,7 +120,7 @@ resource "azurerm_role_assignment" "gh_plan_reader" {
 
 resource "azurerm_role_assignment" "gh_plan_state" {
   scope                = azurerm_storage_container.tfstate.id
-  role_definition_name = "Storage Blob Data Contributor"
+  role_definition_name = "Storage Blob Data Reader"
   principal_id         = azurerm_user_assigned_identity.gh_plan.principal_id
 }
 

@@ -13,3 +13,6 @@ updates:
   - package-ecosystem: terraform
     directories: ["/infra", "/infra/bootstrap", "/infra/modules/container-app"]
     schedule: { interval: weekly }
+    ignore:
+      - dependency-name: hashicorp/azurerm
+        update-types: ["version-update:semver-major"]

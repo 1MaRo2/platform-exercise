@@ -154,7 +154,7 @@ ci.yml (pull_request)                         cd.yml (push to main)
 - **Build once, deploy the digest.** The image that passed the scan is exactly the one pushed (`docker push` of the loaded image). Terraform deploys it by `@sha256` digest, never by `latest`.
 - **Gates are separate from reports.** Each Trivy scan runs twice. The gate scans with severity HIGH/CRITICAL and `exit-code 1`. The report scans all severities as SARIF for the GitHub Security tab, with `exit-code 0`. Combining the two made the gate fail on low-severity findings, because the Trivy action ignores the severity filter when writing SARIF.
 - **Caching.** BuildKit layer cache in the GitHub Actions cache (`type=gha,mode=max`), Go build cache mounts in the Dockerfile, and a Terraform provider plugin cache.
-- **Safe re-runs.** Terraform is idempotent. Deploys are serialized (`concurrency: deploy-dev`, never cancelled mid-apply). State locking uses blob leases, and `-lock-timeout` absorbs contention.
+- **Safe re-runs.** Terraform is idempotent. Deploys are serialized (`concurrency: deploy-dev`, never cancelled mid-apply) and use blob leases; `-lock-timeout` absorbs contention. Pull-request plans use `-lock=false` and a read-only state role, so they cannot change state but may read the previous state if they overlap a deployment.
 - **Reusability.** One reusable build workflow serves both pull requests and `main`. One Terraform module is reused per environment through `envs/<env>.tfvars` and `envs/<env>.backend.hcl`.
 ---
  
@@ -181,11 +181,11 @@ Assumptions: a single subscription and a single environment (`dev`), parameteriz
  
 ### What I hardened, in priority order
  
-1. **No long-lived credentials anywhere** (highest blast radius). GitHub → Azure uses OIDC federated credentials whose subject includes the immutable GitHub owner and repo IDs, so a deleted or renamed repo recreated under the same name cannot assume them. The plan identity only works for `pull_request` and has Reader access. The deploy identity only works from the `dev` GitHub Environment and has Contributor on one resource group. The state storage account has shared keys disabled. GHCR uses the per-job `GITHUB_TOKEN`. The client, tenant and subscription IDs stored in GitHub are not secrets: without a matching GitHub-issued token they grant nothing.
+1. **No long-lived credentials anywhere** (highest blast radius). GitHub → Azure uses OIDC federated credentials whose subject includes the immutable GitHub owner and repo IDs, so a deleted or renamed repo recreated under the same name cannot assume them. The plan identity only works for `pull_request`; it has Reader on environment resource groups and Storage Blob Data Reader on state, and PR plans use `-lock=false`. The deploy identity only works from the `dev` GitHub Environment and has Contributor on one resource group. The state storage account has shared keys disabled. GHCR uses the per-job `GITHUB_TOKEN`. The client, tenant and subscription IDs stored in GitHub are not secrets: without a matching GitHub-issued token they grant nothing.
 2. **Vulnerable artifacts cannot ship.** Every build scans the repo's dependencies and secrets, the Terraform and k8s files, and the image before it is pushed. Each scan fails the build on fixable HIGH/CRITICAL findings. Results go to the GitHub Security tab (SARIF), and a CycloneDX SBOM is attached to every build.
 3. **Minimal, non-root runtime.** Distroless static image, UID 65532, no shell. In k8s: `runAsNonRoot`, `readOnlyRootFilesystem`, `allowPrivilegeEscalation: false`, all capabilities dropped, `RuntimeDefault` seccomp, no service-account token, default-deny NetworkPolicy.
 4. **Least privilege at runtime.** The app's managed identity has no role assignments.
-5. **State protection.** The state storage account and container have `prevent_destroy`, versioning and soft delete.
+5. **State protection.** The state storage account and container have `prevent_destroy`, versioning and soft delete. PR plans cannot write state or acquire its lease; deployments retain normal state locking.
 6. **Supply chain.** Every third-party action is pinned by commit SHA. Workflows start from `permissions: {}` and grant per job. Dependabot tracks actions, base images, Go and providers, and ignores major provider versions, which need a deliberate upgrade.
 ### Policy on HIGH/CRITICAL findings
  
@@ -193,11 +193,13 @@ The build **fails** on HIGH or CRITICAL findings that have a fix available (`--i
  
 ### Evidence
  
-- `docs/evidence/trivy-image-before.txt`: the first pipeline run, with **19 HIGH** CVEs in the Go 1.24.13 standard library. That version no longer receives security fixes, and the gate blocked the push.
-- `docs/evidence/trivy-image-after.txt`: the same scan after moving the build to Go 1.27, with 0 HIGH/CRITICAL.
+- [Successful CD run](https://github.com/1MaRo2/platform-exercise/actions/runs/36275811933): the build, scans, deploy and smoke test all passed.
+- `docs/evidence/terraform-bootstrap-plan.txt`: the current bootstrap plan reports **No changes**. This is the bootstrap stack, not the dev application plan.
+- [`terraform-bootstrap-plan.txt`](docs/evidence/terraform-bootstrap-plan.txt): the current bootstrap plan reports **No changes**. This is the bootstrap stack, not the dev application plan.
+- [Screenshot of the failed image-scan job](docs/evidence/trivy-gate-failure.png) in [Actions run 36196043670](https://github.com/1MaRo2/platform-exercise/actions/runs/36196043670). The corresponding [`trivy-image-before.txt`](docs/evidence/trivy-image-before.txt) report records **19 HIGH** Go 1.24.13 standard-library CVEs; the gate blocked the push.
+- `docs/evidence/trivy-image-after.txt`: the scan after moving the build to Go 1.27, with 0 HIGH/CRITICAL.
 - `docs/evidence/trivy-config.txt`: the IaC scan, with 1 CRITICAL accepted with its rationale and 0 unaccepted.
-- `docs/evidence/local-checks.txt`: unit tests, binary size, hadolint, terraform fmt, tflint and actionlint.
-- The GitHub Security tab and the Actions run summaries (image size, Terraform plan, smoke test).
+- [`local-checks.txt`](docs/evidence/local-checks.txt): current Go 1.27 vet, race-test, build, hadolint and Terraform format results; unavailable local checks are called out.
 ### Tradeoffs made under the time and budget limits
  
 - Public ingress on the demo app, and a public GHCR image instead of a private ACR.

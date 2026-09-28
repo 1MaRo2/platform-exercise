@@ -33,3 +33,30 @@ no issues
 
 $ actionlint
 no issues
+
+# Current local checks (2026-09-28)
+
+Go toolchain selected for `app` by `app/go.mod` (`GOTOOLCHAIN=auto`):
+
+```text
+$ go -C app version
+go version go1.27.0 windows/amd64
+
+$ go -C app vet ./...
+passed (exit 0)
+
+$ go -C app test -race -cover -count=1 ./...
+ok github.com/example/platform-exercise/app 1.699s coverage: 44.4% of statements
+
+$ go -C app build -trimpath -ldflags="-s -w" -o <temp-file> .
+passed; Windows amd64 binary: 6,917,120 bytes
+
+$ hadolint Dockerfile
+no findings
+
+$ terraform fmt -check -recursive infra
+passed
+```
+
+`tflint` and `actionlint` were not installed locally and were not rerun. The
+Docker daemon was unavailable, so no local image build or Trivy image scan was run.
